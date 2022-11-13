@@ -1,0 +1,122 @@
+import psycopg2
+
+def create_db(conn):
+    cur.execute("""
+            CREATE TABLE IF NOT EXISTS clients(
+                id SERIAL PRIMARY KEY,
+                name VARCHAR(40) NOT NULL,
+                lastname VARCHAR(40) NOT NULL,
+                emails VARCHAR(40) UNIQUE NOT NULL
+            );
+            """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS numbers(
+            number VARCHAR(11) PRIMARY KEY UNIQUE,
+            client_id INTEGER REFERENCES clients(id)
+            );
+        """)
+    conn.commit()
+
+def add_phone(conn, client_id, phone):
+    cur.execute("""
+        INSERT INTO numbers(number, client_id) VALUES (%s, %s) RETURNING number, client_id 
+        """, (phone, client_id))
+    print(cur.fetchone())
+
+def add_client(conn, first_name, last_name, email):
+    cur.execute("""
+        INSERT INTO clients(name, lastname, emails) VALUES(%s, %s, %s) RETURNING id, name, lastname, emails;
+        """, (first_name, last_name, email))
+    print(cur.fetchone())
+
+def change_client(conn, client_id, first_name=None, last_name=None, email=None):
+    cur.execute("""
+        SELECT * from clients WHERE id = %s
+        """, (client_id,))
+    info = cur.fetchone()
+    if first_name is None:
+        first_name = info[1]
+    if last_name is None:
+        last_name = info[2]
+    if email is None:
+        email = info[3]
+    cur.execute("""
+        UPDATE clients
+        SET name = %s, lastname = %s, emails =%s
+        where id = %s RETURNING name, lastname, emails
+        """, (first_name, last_name, email, client_id))
+    print(cur.fetchone())
+
+def delete_phone(conn, client_id, phone):
+    cur.execute("""
+        DELETE FROM numbers 
+        WHERE number = %s
+        """, (phone,))
+    conn.commit()
+
+def delete_client(conn, client_id):
+    cur.execute("""
+            DELETE FROM numbers
+            WHERE client_id = %s
+            """, (client_id,))
+    cur.execute("""
+            DELETE FROM clients 
+            WHERE id = %s
+            """, (client_id,))
+    conn.commit()
+
+def find_client(conn, first_name=None, last_name=None, email=None, phone=None):
+    if first_name is None:
+        first_name = '%'
+    else:
+        first_name = '%' + first_name + '%'
+    if last_name is None:
+        last_name = '%'
+    else:
+        last_name = '%' + last_name + '%'
+    if email is None:
+        email = '%'
+    else:
+        email = '%' + email + '%'
+    if phone is None:
+        cur.execute("""
+                SELECT c.id, c.name, c.lastname, c.emails, n.number FROM clients c
+                LEFT JOIN numbers n ON c.id = n.client_id
+                WHERE c.name LIKE %s AND c.lastname LIKE %s
+                AND c.emails LIKE %s """, (first_name, last_name, email))
+        print(cur.fetchone())
+    else:
+        cur.execute("""
+                SELECT c.id, c.name, c.lastname, c.emails, n.number FROM clients c
+                LEFT JOIN numbers n ON c.id = n.client_id
+                WHERE c.name LIKE %s AND c.lastname LIKE %s
+                AND c.emails LIKE %s AND n.number like %s """, (first_name, last_name, email, phone))
+        print(cur.fetchone())
+
+
+with psycopg2.connect(database="clients_db", user="postgres", password="postgres") as conn:
+    with conn.cursor() as cur:
+        cur.execute("""
+        DROP TABLE numbers;
+        DROP TABLE clients
+        """)
+        create_db(conn)
+        print("Database created")
+        add_client(conn, 'Петр', 'Иванов', 'petr@ya.ru')
+        add_client(conn, 'Анна', 'Иванова', 'anna@ya.ru')
+        add_client(conn, 'Максим', 'Сидоров', 'maks@ya.ru')
+        print("Clients added")
+        add_phone(conn, 1, '922376')
+        add_phone(conn, 2, '923398')
+        print("Phones added")
+        change_client(conn, 2, first_name='Екатерина')
+        print("Client changed")
+        delete_phone(conn, 1, '922300')
+        print("Phone deleted")
+        delete_client(conn, 1)
+        print("Client deleted")
+        find_client(conn, first_name='Екатерина')
+        find_client(conn, last_name='Сидоров')
+        find_client(conn, phone='923398')
+
+conn.close()
